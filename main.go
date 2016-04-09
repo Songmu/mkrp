@@ -31,11 +31,22 @@ func run() int {
 
 type app struct {
 	cli   *mackerel.Client
+	org   string
 	hosts map[string]*mackerel.Host
 }
 
+func (a *app) getOrg() string {
+	if a.org == "" {
+		org, _ := a.cli.GetOrg()
+		a.org = org.Name
+	}
+	return a.org
+}
+
 func (a *app) getHosts() (map[string](*mackerel.Host), error) {
-	hosts, err := a.cli.FindHosts(&mackerel.FindHostsParam{})
+	hosts, err := a.cli.FindHosts(&mackerel.FindHostsParam{
+		Statuses: []string{"standby", "working", "maintenance", "poweroff"},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +65,9 @@ func (a *app) loop() int {
 			a.hosts = hosts
 			if oldHosts != nil {
 				hds := getHostDiffs(oldHosts, hosts)
-				fmt.Printf("%+v\n", hds)
+				if hds.hasDiff() {
+					fmt.Println(hds.String(a.getOrg()))
+				}
 			}
 		}
 		time.Sleep(20 * time.Second)
@@ -80,6 +93,39 @@ type hostDiffs struct {
 	newHosts     []*mackerel.Host
 	retiredHosts []*mackerel.Host
 	changedHosts []*changedHost
+}
+
+func (hds *hostDiffs) hasDiff() bool {
+	return (len(hds.newHosts) + len(hds.retiredHosts) + len(hds.changedHosts)) > 0
+}
+
+func (hds *hostDiffs) String(org string) string {
+	s := ""
+	if len(hds.newHosts) > 0 {
+		s += "New:\n"
+	}
+	for _, h := range hds.newHosts {
+		s += "- " + formatHost(org, h) + "\n"
+	}
+	if len(hds.retiredHosts) > 0 {
+		s += "Retired:\n"
+	}
+	for _, h := range hds.retiredHosts {
+		s += "- " + formatHost(org, h) + "\n"
+	}
+	if len(hds.changedHosts) > 0 {
+		s += "Changed:\n"
+	}
+	for _, h := range hds.changedHosts {
+		s += "- " + formatHost(org, h.host) + "\n"
+		if h.statusChanged() {
+			s += fmt.Sprintf("    status: %s -> %s\n", h.oldStatus, h.host.Status)
+		}
+		if h.roleChanged() {
+			s += fmt.Sprintf("    roles: %s -> %s\n", strings.Join(h.oldRoles, ","), strings.Join(h.host.GetRoleFullnames(), ","))
+		}
+	}
+	return s
 }
 
 func getHostDiffs(old, new map[string]*mackerel.Host) *hostDiffs {
@@ -130,4 +176,21 @@ func getHostDiff(old, new *mackerel.Host) *changedHost {
 		return c
 	}
 	return nil
+}
+
+func formatHost(org string, h *mackerel.Host) string {
+	return fmt.Sprintf("%s status:%s roles:%s %s",
+		formatHostName(h), h.Status, strings.Join(h.GetRoleFullnames(), ","), formatURL(org, h.ID))
+}
+
+func formatURL(org, id string) string {
+	return fmt.Sprintf("https://mackerel.io/orgs/%s/hosts/%s", org, id)
+}
+
+func formatHostName(h *mackerel.Host) string {
+	s := h.Name
+	if h.DisplayName != "" {
+		s += fmt.Sprintf("(%s)", h.DisplayName)
+	}
+	return s
 }
