@@ -9,13 +9,7 @@ import (
 
 	"github.com/mackerelio/mackerel-agent/logging"
 	"github.com/mackerelio/mackerel-client-go"
-	"github.com/sergi/go-diff/diffmatchpatch"
 )
-
-// new host
-// retired host
-// changed status
-// role changed
 
 var logger = logging.GetLogger("main")
 
@@ -36,8 +30,8 @@ func run() int {
 }
 
 type app struct {
-	cli      *mackerel.Client
-	oldHosts map[string]*mackerel.Host
+	cli   *mackerel.Client
+	hosts map[string]*mackerel.Host
 }
 
 func (a *app) getHosts() (map[string](*mackerel.Host), error) {
@@ -56,7 +50,12 @@ func (a *app) loop() int {
 	for {
 		hosts, err := a.getHosts()
 		if err == nil {
-			fmt.Printf("%+v\n", hosts)
+			oldHosts := a.hosts
+			a.hosts = hosts
+			if oldHosts != nil {
+				hds := getHostDiffs(oldHosts, hosts)
+				fmt.Printf("%+v\n", hds)
+			}
 		}
 		time.Sleep(20 * time.Second)
 	}
@@ -69,34 +68,66 @@ type changedHost struct {
 	oldRoles  []string
 }
 
+func (c *changedHost) roleChanged() bool {
+	return c.oldRoles != nil
+}
+
+func (c *changedHost) statusChanged() bool {
+	return c.oldStatus != ""
+}
+
 type hostDiffs struct {
 	newHosts     []*mackerel.Host
 	retiredHosts []*mackerel.Host
 	changedHosts []*changedHost
 }
 
-type diffs struct {
-	added   []string
-	deleted []string
-}
-
-func sliceDiff(old, new []string) diffs {
-	sort.Strings(old)
-	sort.Strings(new)
-	delim := "\n"
-	dmp := diffmatchpatch.New()
-	a, b, c := dmp.DiffLinesToChars(strings.Join(old, delim), strings.Join(new, delim))
-	diff := dmp.DiffCharsToLines(dmp.DiffMain(a, b, false), c)
-	d := diffs{}
-	for _, v := range diff {
-		switch v.Type {
-		case diffmatchpatch.DiffInsert:
-			elms := strings.Split(strings.TrimSpace(v.Text), delim)
-			d.added = append(d.added, elms...)
-		case diffmatchpatch.DiffDelete:
-			elms := strings.Split(strings.TrimSpace(v.Text), delim)
-			d.deleted = append(d.deleted, elms...)
+func getHostDiffs(old, new map[string]*mackerel.Host) *hostDiffs {
+	hds := &hostDiffs{}
+	for k, v := range old {
+		if _, ok := new[k]; !ok {
+			hds.retiredHosts = append(hds.retiredHosts, v)
 		}
 	}
-	return d
+
+	for k, v := range new {
+		oldHost, ok := old[k]
+		if !ok {
+			hds.newHosts = append(hds.newHosts, v)
+		} else {
+			d := getHostDiff(oldHost, v)
+			if d != nil {
+				hds.changedHosts = append(hds.changedHosts, d)
+			}
+		}
+	}
+	return hds
+}
+
+func getHostDiff(old, new *mackerel.Host) *changedHost {
+	c := &changedHost{
+		host: new,
+	}
+	if old.Status != new.Status {
+		c.oldStatus = old.Status
+	}
+
+	oldRoles := old.GetRoleFullnames()
+	if len(oldRoles) == 0 {
+		oldRoles = []string{}
+	}
+	sort.Strings(oldRoles)
+	newRoles := new.GetRoleFullnames()
+	if len(newRoles) == 0 {
+		newRoles = []string{}
+	}
+	sort.Strings(newRoles)
+	if strings.Join(oldRoles, ",") != strings.Join(newRoles, ",") {
+		c.oldRoles = oldRoles
+	}
+
+	if c.roleChanged() || c.statusChanged() {
+		return c
+	}
+	return nil
 }
