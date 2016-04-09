@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -27,17 +28,30 @@ func run() int {
 		logger.Errorf(`MACKEREL_APIKEY environment variable is not set. (Try "export MACKEREL_APIKEY='<Your apikey>'"`)
 		return 1
 	}
-
-	cli := mackerel.NewClient(apiKey)
-
-	hosts, err := cli.FindHosts(&mackerel.FindHostsParam{})
-	if err != nil {
-		logger.Errorf(err.Error())
-		return 1
+	a := &app{
+		cli: mackerel.NewClient(apiKey),
 	}
-	_ = hosts
+	hosts, _ := a.getHosts()
+
+	fmt.Printf("%+v\n", hosts)
 
 	return 0
+}
+
+type app struct {
+	cli *mackerel.Client
+}
+
+func (a *app) getHosts() (map[string](*mackerel.Host), error) {
+	hosts, err := a.cli.FindHosts(&mackerel.FindHostsParam{})
+	if err != nil {
+		return nil, err
+	}
+	ret := make(map[string](*mackerel.Host))
+	for _, h := range hosts {
+		ret[h.ID] = h
+	}
+	return ret, nil
 }
 
 type diffs struct {
