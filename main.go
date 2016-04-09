@@ -13,6 +13,10 @@ import (
 
 var logger = logging.GetLogger("main")
 
+var mackerelBase = "https://mackerel.io"
+
+var pollingInterval = 20 * time.Second
+
 func main() {
 	os.Exit(run())
 }
@@ -70,7 +74,7 @@ func (a *app) loop() int {
 				}
 			}
 		}
-		time.Sleep(20 * time.Second)
+		time.Sleep(pollingInterval)
 	}
 	return 0
 }
@@ -180,11 +184,18 @@ func getHostDiff(old, new *mackerel.Host) *changedHost {
 
 func formatHost(org string, h *mackerel.Host) string {
 	return fmt.Sprintf("%s status:%s roles:%s %s",
-		formatHostName(h), h.Status, strings.Join(h.GetRoleFullnames(), ","), formatURL(org, h.ID))
+		formatHostName(h), h.Status, strings.Join(h.GetRoleFullnames(), ","), formatHostURL(org, h.ID))
 }
 
-func formatURL(org, id string) string {
-	return fmt.Sprintf("https://mackerel.io/orgs/%s/hosts/%s", org, id)
+func formatHostURL(org, id string) string {
+	return fmt.Sprintf("%s/orgs/%s/hosts/%s", mackerelBase, org, id)
+}
+
+func formatRoleURL(org, roleFullname string) string {
+	s := strings.Split(roleFullname, ":")
+	service := s[0]
+	role := s[1]
+	return fmt.Sprintf("%s/orgs/%s/services/%s/%s/-/graph", mackerelBase, service, role)
 }
 
 func formatHostName(h *mackerel.Host) string {
