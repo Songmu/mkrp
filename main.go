@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mackerelio/mackerel-agent/logging"
 	"github.com/mackerelio/mackerel-client-go"
@@ -31,15 +32,12 @@ func run() int {
 	a := &app{
 		cli: mackerel.NewClient(apiKey),
 	}
-	hosts, _ := a.getHosts()
-
-	fmt.Printf("%+v\n", hosts)
-
-	return 0
+	return a.loop()
 }
 
 type app struct {
-	cli *mackerel.Client
+	cli      *mackerel.Client
+	oldHosts map[string]*mackerel.Host
 }
 
 func (a *app) getHosts() (map[string](*mackerel.Host), error) {
@@ -52,6 +50,29 @@ func (a *app) getHosts() (map[string](*mackerel.Host), error) {
 		ret[h.ID] = h
 	}
 	return ret, nil
+}
+
+func (a *app) loop() int {
+	for {
+		hosts, err := a.getHosts()
+		if err == nil {
+			fmt.Printf("%+v\n", hosts)
+		}
+		time.Sleep(20 * time.Second)
+	}
+	return 0
+}
+
+type changedHost struct {
+	host      *mackerel.Host
+	oldStatus string
+	oldRoles  []string
+}
+
+type hostDiffs struct {
+	newHosts     []*mackerel.Host
+	retiredHosts []*mackerel.Host
+	changedHosts []*changedHost
 }
 
 type diffs struct {
