@@ -203,7 +203,7 @@ func getHostDiff(old, new *mackerel.Host) *changedHost {
 }
 
 func formatHost(org string, h *mackerel.Host) string {
-	return fmt.Sprintf("%s status:%s roles:%s %s",
+	return fmt.Sprintf("%s status: %s, roles: %s, %s",
 		formatHostName(h), h.Status, strings.Join(h.GetRoleFullnames(), ","), formatHostURL(org, h.ID))
 }
 
