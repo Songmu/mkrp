@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monochromegane/slack-incoming-webhooks"
 	"github.com/mackerelio/mackerel-agent/logging"
 	"github.com/mackerelio/mackerel-client-go"
 )
@@ -27,8 +28,23 @@ func run() int {
 		logger.Errorf(`MACKEREL_APIKEY environment variable is not set. (Try "export MACKEREL_APIKEY='<Your apikey>'"`)
 		return 1
 	}
+	slackURL := os.Getenv("MKRP_SLACK_WEBHOOK_URL")
+	if slackURL == "" {
+		logger.Errorf(`MKRP_SLACK_WEBHOOK_URL environment variable is not set. (Try "export MKRP_SLACK_WEBHOOK_URL='<Your apikey>'"`)
+		return 1
+	}
+	slackChannel := os.Getenv("MKRP_SLACK_CHANNEL") // optional
+
+	s := &slack{
+		client: slack_incoming_webhooks.Client{
+			WebhookURL: slackURL,
+		},
+		channel:    slackChannel,
+	}
+
 	a := &app{
-		cli: mackerel.NewClient(apiKey),
+		cli:   mackerel.NewClient(apiKey),
+		slack: s,
 	}
 	return a.loop()
 }
@@ -37,6 +53,7 @@ type app struct {
 	cli   *mackerel.Client
 	org   string
 	hosts map[string]*mackerel.Host
+	slack *slack
 }
 
 func (a *app) getOrg() string {
@@ -69,8 +86,10 @@ func (a *app) loop() int {
 			a.hosts = hosts
 			if oldHosts != nil {
 				hds := getHostDiffs(oldHosts, hosts)
+				hds.org = a.getOrg()
 				if hds.hasDiff() {
-					fmt.Println(hds.String(a.getOrg()))
+					a.slack.post(hds)
+					fmt.Println(hds.String())
 				}
 			}
 		}
@@ -94,6 +113,7 @@ func (c *changedHost) statusChanged() bool {
 }
 
 type hostDiffs struct {
+	org          string
 	newHosts     []*mackerel.Host
 	retiredHosts []*mackerel.Host
 	changedHosts []*changedHost
@@ -103,25 +123,25 @@ func (hds *hostDiffs) hasDiff() bool {
 	return (len(hds.newHosts) + len(hds.retiredHosts) + len(hds.changedHosts)) > 0
 }
 
-func (hds *hostDiffs) String(org string) string {
+func (hds *hostDiffs) String() string {
 	s := ""
 	if len(hds.newHosts) > 0 {
 		s += "New:\n"
 	}
 	for _, h := range hds.newHosts {
-		s += "- " + formatHost(org, h) + "\n"
+		s += "- " + formatHost(hds.org, h) + "\n"
 	}
 	if len(hds.retiredHosts) > 0 {
 		s += "Retired:\n"
 	}
 	for _, h := range hds.retiredHosts {
-		s += "- " + formatHost(org, h) + "\n"
+		s += "- " + formatHost(hds.org, h) + "\n"
 	}
 	if len(hds.changedHosts) > 0 {
 		s += "Changed:\n"
 	}
 	for _, h := range hds.changedHosts {
-		s += "- " + formatHost(org, h.host) + "\n"
+		s += "- " + formatHost(hds.org, h.host) + "\n"
 		if h.statusChanged() {
 			s += fmt.Sprintf("    status: %s -> %s\n", h.oldStatus, h.host.Status)
 		}
