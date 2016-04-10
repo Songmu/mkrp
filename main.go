@@ -215,7 +215,7 @@ func formatRoleURL(org, roleFullname string) string {
 	s := strings.Split(roleFullname, ":")
 	service := s[0]
 	role := s[1]
-	return fmt.Sprintf("%s/orgs/%s/services/%s/%s/-/graph", mackerelBase, service, role)
+	return fmt.Sprintf("%s/orgs/%s/services/%s/%s/-/graph", mackerelBase, org, service, role)
 }
 
 func formatHostName(h *mackerel.Host) string {
