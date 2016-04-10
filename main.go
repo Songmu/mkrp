@@ -89,7 +89,7 @@ func (a *app) loop() int {
 				hds.org = a.getOrg()
 				if hds.hasDiff() {
 					a.slack.post(hds)
-					fmt.Println(hds.String())
+					logger.Infof(hds.String())
 				}
 			}
 		}
